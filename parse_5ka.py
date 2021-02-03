@@ -2,54 +2,7 @@ import requests
 import json
 from pathlib import Path
 import time
-
-# url = 'https://5ka.ru/special_offers/'
-# url_api = 'https://5ka.ru/api/v2/special_offers/'
-
-"""
-GET
-POST
-PUT
-PUTCH
-DELETE
-"""
-
-"""
-1xx - Information
-2xx - Ok
-3xx - Redirect
-4xx - Client Error
-5xx - Server Error
-"""
-
-
-# response: requests.Response = requests.get(url)
-#
-# with open('5ka.ru.html', 'w', encoding='UTF-8') as file:
-#     file.write(response.text)
-# print(1)
-
-# https://5ka.ru/api/v2/special_offers/
-# ?categories=&ordering=&page=2&price_promo__gte=&price_promo__lte=&records_per_page=12&search=&store="
-
-# params = {
-#     'store': None,
-#     'records_per_page': 100,
-#     'page': 1,
-#     'categories': None,
-#     'ordering': None,
-# }
-#
-# headers = {
-#     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0',
-#     'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3'
-# }
-
-# response: requests.Response = requests.get(url_api, params=params, headers = headers)
-#
-# with open('5ka.ru.html', 'w', encoding='UTF-8') as file:
-#     file.write(response.text)
-# print(1)
+import os
 
 class Parse_error(Exception):
     def __init__(self, txt):
@@ -57,12 +10,12 @@ class Parse_error(Exception):
 
 
 class Parse_5ka:
-    params = {
+    _params = {
         'records_per_page': 100,
         'page': 1,
     }
 
-    headers = {
+    _headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0',
         'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3'
     }
@@ -87,12 +40,12 @@ class Parse_5ka:
     def run(self):
         for product in self.parse(self.start_url):
             path = self.result_path.joinpath(f'{product["id"]}.json')
-            self.save(product, path)
+            self._save_to_json(product, path)
 
     def parse(self, url):
-        params = self.params
+        params = self._params
         while url:
-            response = self.__get_response(url, params=params, headers=self.headers)
+            response = self.__get_response(url, params=params, headers=self._headers)
             if params:
                 params = {}
             data = json.loads(response.text)
@@ -101,13 +54,56 @@ class Parse_5ka:
                 yield product
 
     @staticmethod
-    def save(data, path:Path):
+    def _save_to_json(data, path: Path):
         with path.open('w', encoding='UTF-8') as file:
             json.dump(data, file, ensure_ascii=False)
 
 
+class Parse_5ka_types(Parse_5ka):
+
+    def __init__(self, start_url, type_url, result_path):
+        super().__init__(start_url, result_path)
+        self.type_url = type_url
+
+    def __get_types(self, url):
+        response = requests.get(url, headers=self._headers)
+        print(response)
+        return response.json()
+
+    def run(self):
+        for type in self.__get_types(self.type_url):
+
+            path = self.result_path.joinpath(f'{type["parent_group_code"]}.json')
+            data = {
+                "name": type["parent_group_name"],
+                "code": type["parent_group_code"],
+                "products": [],
+            }
+            self._params["categories"] = type["parent_group_code"]
+            self._save_to_json(data, path)
+
+            for products in self.parse(self.start_url):
+                self._add_to_json(products, 'products', path)
+
+    @staticmethod
+    def _add_to_json(new_data, dict_key, path: Path):
+        with path.open('r', encoding='UTF-8') as file:
+            data = json.load(file)
+            print(type(data))
+            data[dict_key] += [(new_data)]
+        with path.open('w', encoding='UTF-8') as output:
+            json.dump(data, output, ensure_ascii=False)
+
+
 if __name__ == '__main__':
-    result_path = Path(__file__).parent.joinpath('products')
+    json_dir = 'data'
     url = 'https://5ka.ru/api/v2/special_offers/'
-    parser = Parse_5ka(url, result_path)
+    url_types = 'https://5ka.ru/api/v2/categories/'
+
+    Path(json_dir).mkdir(parents=True, exist_ok=True)
+    result_path = Path(__file__).parent.joinpath(json_dir)
+
+    parser = Parse_5ka_types(url, url_types, result_path)
     parser.run()
+
+    print(f'Completed\nPlease check {result_path} directory')
